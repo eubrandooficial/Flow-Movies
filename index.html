@@ -66,7 +66,6 @@
         #app { display: none; }
         #app.active { display: block; }
 
-        /* Header */
         header {
             position: sticky; top: 0; z-index: 100;
             display: flex; align-items: center; gap: 15px;
@@ -91,7 +90,6 @@
         .btn-switch { background: none; border: 1px solid #444; color: var(--muted); padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s; white-space: nowrap; }
         .btn-switch:hover { border-color: var(--red); color: var(--text); }
 
-        /* Main Content */
         #main-content { padding: 10px 20px 20px; min-height: 80vh; }
         .section-title { font-size: 1.3rem; margin: 20px 0 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
         .grid-container {
@@ -199,7 +197,6 @@
         }
         .close-modal:hover { background: var(--red); }
 
-        /* Modal Editor de Perfil */
         #profile-editor-modal .detail-content { max-width: 400px; padding: 30px; margin-top: 20vh; }
         #profile-editor-modal h3 { margin-bottom: 20px; text-align: center; }
         #profile-editor-modal label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 4px; }
@@ -211,7 +208,6 @@
         .btn-save { background: var(--red); color: #fff; }
         .btn-cancel { background: #333; color: #fff; }
 
-        /* Responsividade */
         @media (max-width: 600px) {
             .grid-container { grid-template-columns: repeat(2, 1fr); gap: 10px; }
             .detail-poster { width: 90px; height: 135px; top: 80px; left: 15px; }
@@ -283,18 +279,23 @@
 
     <script>
         // ============================================================
-        // CONFIGURAÇÕES DE API
+        // CONFIGURAÇÕES
         // ============================================================
         const TRAKT_CLIENT_ID = '-KuK7V0AKxGKrQga25LIor3r52njL40Voi5remeeFsI'; 
-        const OMDB_API_KEY = 'fc85815d'; // Chave inserida
         const TRAKT_BASE = 'https://api.trakt.tv';
-        const OMDB_BASE = 'https://www.omdbapi.com/';
+        const CINEMETA_BASE = 'https://v3-cinemeta.strem.io';
         const IMG_PLACEHOLDER = 'https://via.placeholder.com/300x450/141414/666?text=Sem+Capa';
         const DEFAULT_PROFILE_IMG = 'https://via.placeholder.com/150x150/333/fff?text=?';
 
-        // ============================================================
-        // ESTADO GLOBAL
-        // ============================================================
+        // Lista de provedores de embed para tentar em ordem
+        const EMBED_PROVIDERS = [
+            (tmdbId) => `https://vidsrc.cc/v2/embed/movie/${tmdbId}`,
+            (tmdbId) => `https://vidsrc.pm/embed/movie?tmdb=${tmdbId}`,
+            (tmdbId) => `https://vidsrc.to/embed/movie/${tmdbId}`,
+            (tmdbId) => `https://2embed.cc/embed/${tmdbId}`,
+            (tmdbId) => `https://embed.su/embed/movie/${tmdbId}`
+        ];
+
         let profiles = [];
         let currentProfileId = null;
         let editingProfileId = null;
@@ -425,13 +426,11 @@
         }
 
         // ============================================================
-        // NAVEGAÇÃO E CARREGAMENTO DE ABAS
+        // NAVEGAÇÃO
         // ============================================================
         function setupBottomNav() {
             document.querySelectorAll('.nav-item').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    switchTab(btn.dataset.tab);
-                });
+                btn.addEventListener('click', () => switchTab(btn.dataset.tab));
             });
         }
 
@@ -470,14 +469,12 @@
                         continueSection.innerHTML = `<h2 class="section-title"><i class="fas fa-history"></i> Continuar Assistindo</h2><div class="grid-container" id="continue-grid"></div>`;
                         container.insertBefore(continueSection, container.firstChild);
                         const continueGrid = continueSection.querySelector('#continue-grid');
-                        continueWatching.forEach(movie => {
-                            continueGrid.appendChild(createMovieCard(movie));
-                        });
+                        continueWatching.forEach(movie => continueGrid.appendChild(createMovieCard(movie)));
                     }
                 }
             } catch (err) {
                 console.error(err);
-                container.innerHTML = '<div class="empty-msg">Erro ao carregar conteúdo.</div>';
+                container.innerHTML = '<div class="empty-msg">Erro ao carregar conteúdo. Verifique se o "Allowed Origins" no painel do Trakt inclui a URL do seu site.</div>';
             }
         }
 
@@ -491,16 +488,12 @@
             
             container.innerHTML = '<h2 class="section-title">Minha Lista</h2><div class="loading">Carregando sua lista...</div>';
             
-            // CORREÇÃO: O Trakt aceita buscar por TMDB ID usando o prefixo "tmdb-"
-            const promises = watchlist.map(id => 
-                fetchTrakt(`/movies/tmdb-${id}?extended=full`).catch(() => null)
-            );
-            
+            const promises = watchlist.map(id => fetchTrakt(`/movies/tmdb-${id}?extended=full`).catch(() => null));
             const movies = await Promise.all(promises);
             const validMovies = movies.filter(m => m !== null);
             
             if (validMovies.length === 0) {
-                container.innerHTML = '<h2 class="section-title">Minha Lista</h2><div class="empty-msg">Nenhum filme encontrado na sua lista.</div>';
+                container.innerHTML = '<h2 class="section-title">Minha Lista</h2><div class="empty-msg">Nenhum filme encontrado.</div>';
                 return;
             }
             
@@ -514,7 +507,7 @@
         }
 
         // ============================================================
-        // RENDERIZAÇÃO DE CARDS E IMAGENS
+        // CARDS E METADADOS (CINEMETA)
         // ============================================================
         function renderGrid(items, container, title) {
             container.innerHTML = `<h2 class="section-title">${title}</h2><div class="grid-container"></div>`;
@@ -531,6 +524,7 @@
             card.className = 'movie-card';
 
             const tmdbId = movie.ids ? movie.ids.tmdb : movie.tmdbId;
+            const imdbId = movie.ids ? movie.ids.imdb : null;
             const title = movie.title || 'Sem Título';
             const year = movie.year || '';
             const favs = getFavorites();
@@ -545,19 +539,16 @@
                 <button class="fav-btn ${isFav ? 'active' : ''}" data-id="${tmdbId || ''}">${isFav ? '❤️' : '🤍'}</button>
             `;
 
-            // BUSCA DE CAPA (OMDb)
-            // Se o filme foi salvo localmente, ele já tem a URL do pôster salva!
-            if (movie.poster && movie.poster !== 'N/A') {
-                card.querySelector('img').src = movie.poster;
-            } 
-            // Se veio da API do Trakt, busca no OMDb
-            else if (OMDB_API_KEY && movie.ids && movie.ids.imdb) {
-                fetchOMDB(movie.ids.imdb).then(data => {
-                    if (data && data.Poster && data.Poster !== 'N/A') {
-                        card.querySelector('img').src = data.Poster;
-                        movie.poster = data.Poster; // Cache local no objeto
+            // Busca a capa via Cinemeta (sem chave!)
+            if (imdbId) {
+                fetchCinemetaMeta(imdbId).then(meta => {
+                    if (meta && meta.poster) {
+                        card.querySelector('img').src = meta.poster;
+                        movie.poster = meta.poster; // Cache local
                     }
                 }).catch(() => {});
+            } else if (movie.poster) {
+                card.querySelector('img').src = movie.poster;
             }
 
             card.addEventListener('click', (e) => {
@@ -592,7 +583,7 @@
         }
 
         // ============================================================
-        // DETALHES DO FILME E PLAYER
+        // DETALHES E PLAYER (COM FALLBACK)
         // ============================================================
         async function openDetail(movie) {
             const modal = document.getElementById('detail-modal');
@@ -606,27 +597,21 @@
             content.innerHTML = '<div class="loading" style="padding:50px;">Carregando detalhes...</div>';
             modal.classList.add('open');
 
-            let omdbData = null;
-            if (OMDB_API_KEY && imdbId) {
-                try { omdbData = await fetchOMDB(imdbId); } catch (e) {}
+            let cinemetaData = null;
+            if (imdbId) {
+                try { cinemetaData = await fetchCinemetaMeta(imdbId); } catch (e) { console.warn('Cinemeta error', e); }
             }
 
-            let traktData = null;
-            if (tmdbId && !omdbData) {
-                try { traktData = await fetchTrakt(`/movies/tmdb-${tmdbId}?extended=full`); } catch (e) {}
-            }
-
-            const poster = (omdbData && omdbData.Poster !== 'N/A') ? omdbData.Poster : (movie.poster || IMG_PLACEHOLDER);
-            const plot = (omdbData && omdbData.Plot !== 'N/A') ? omdbData.Plot : (traktData?.overview || 'Sinopse não disponível.');
-            const rating = (omdbData && omdbData.imdbRating !== 'N/A') ? omdbData.imdbRating : (traktData?.rating?.toFixed(1) || 'N/A');
-            const genres = (omdbData && omdbData.Genre !== 'N/A') ? omdbData.Genre : (traktData?.genres?.join(', ') || '');
+            const poster = (cinemetaData && cinemetaData.poster) ? cinemetaData.poster : (movie.poster || IMG_PLACEHOLDER);
+            const plot = (cinemetaData && cinemetaData.description) ? cinemetaData.description : (movie.overview || 'Sinopse não disponível.');
+            const rating = (cinemetaData && cinemetaData.imdbRating) ? cinemetaData.imdbRating : 'N/A';
+            const genres = (cinemetaData && cinemetaData.genres) ? cinemetaData.genres.join(', ') : '';
             
             const favs = getFavorites();
             const watchlist = getWatchlist();
             const isFav = tmdbId ? favs.includes(tmdbId) : false;
             const isSaved = tmdbId ? watchlist.includes(tmdbId) : false;
 
-            // Atualiza o poster no objeto local para a "Minha Lista" não ficar sem imagem
             if (poster !== IMG_PLACEHOLDER) movie.poster = poster;
 
             content.innerHTML = `
@@ -681,13 +666,24 @@
             playBtn.addEventListener('click', () => {
                 if (!tmdbId) { alert('ID do TMDB indisponível.'); return; }
                 
-                // Salva na sessão de "Continuar Assistindo" com o poster atualizado
                 addToContinueWatching({ tmdbId, title, year, poster, ids: { imdb: imdbId } });
                 
                 const playerContainer = content.querySelector('#player-container');
                 const iframe = content.querySelector('#player-iframe');
                 playerContainer.style.display = 'block';
-                iframe.src = `https://vidsrc.pm/embed/movie?tmdb=${tmdbId}`;
+                
+                // Tenta os provedores em sequência até um funcionar
+                let providerIndex = 0;
+                const tryNextProvider = () => {
+                    if (providerIndex >= EMBED_PROVIDERS.length) {
+                        iframe.srcdoc = "<html><body style='background:#000;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100%;'><h3>Nenhum provedor de vídeo disponível no momento. Tente novamente mais tarde.</h3></body></html>";
+                        return;
+                    }
+                    const url = EMBED_PROVIDERS[providerIndex](tmdbId);
+                    iframe.src = url;
+                    providerIndex++;
+                };
+                tryNextProvider();
                 playerContainer.scrollIntoView({ behavior: 'smooth' });
             });
 
@@ -732,7 +728,7 @@
         }
 
         // ============================================================
-        // HELPERS DE API
+        // APIs
         // ============================================================
         async function fetchTrakt(path) {
             const res = await fetch(`${TRAKT_BASE}${path}`, {
@@ -742,10 +738,11 @@
             return res.json();
         }
 
-        async function fetchOMDB(imdbId) {
-            const res = await fetch(`${OMDB_BASE}?apikey=${OMDB_API_KEY}&i=${imdbId}&plot=full`);
-            if (!res.ok) throw new Error('OMDb error');
-            return res.json();
+        async function fetchCinemetaMeta(imdbId) {
+            const res = await fetch(`${CINEMETA_BASE}/meta/movie/${imdbId}.json`);
+            if (!res.ok) throw new Error('Cinemeta error');
+            const data = await res.json();
+            return data.meta;
         }
 
         // ============================================================
